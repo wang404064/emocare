@@ -1,0 +1,46 @@
+# Python 生成文件
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# 环境变量和配置
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 日志文件
+logs/
+*.log
+
+# 数据文件
+/data/
+*.db
+*.sqlite
+
+# LangGraph
+/backend/.langgraph_api
+/backend/data/
+# 文档（如果需要可以取消注释）
+/docs
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 模型文件（如果很大，建议使用 Git LFS 或忽略）
+# *.pth
+# *.pt
+# *.ckpt

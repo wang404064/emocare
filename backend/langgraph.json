@@ -1,0 +1,11 @@
+{
+  "$schema": "https://langchain-ai.github.io/langgraph/schemas/langgraph.json",
+  "graphs": {
+    "emo_agent": "src.graph.builder:create_emo_graph"
+  },
+  "env": ".env",
+  "dependencies": [
+    "."
+  ],
+  "dockerfile_lines": []
+}
