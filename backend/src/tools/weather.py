@@ -78,20 +78,24 @@ class WeatherTool:
         }
     
     def _get_mock_weather(self, city: str) -> Dict[str, Any]:
-        """返回模拟天气数据（用于测试或API不可用时）"""
+        """返回模拟天气数据（基于城市名称哈希产生差异，避免所有城市返回相同数据）"""
+        # 用城市名哈希生成可复现的伪随机偏移
+        city_hash = sum(ord(c) for c in city)
+        base_temp = 18 + (city_hash % 13)       # 18-30°C
+        temp = base_temp + (city_hash % 5) - 2   # 微调
         return {
             "city": city,
-            "temperature": 22,
-            "feels_like": 24,
-            "humidity": 65,
-            "pressure": 1013,
-            "description": "晴朗",
-            "main": "Clear",
-            "wind_speed": 3.5,
-            "wind_direction": 180,
-            "visibility": 10,
+            "temperature": temp,
+            "feels_like": temp + (1 if city_hash % 3 == 0 else -1),
+            "humidity": 50 + (city_hash % 35),
+            "pressure": 1005 + (city_hash % 20),
+            "description": ["晴朗", "多云", "阴天", "小雨"][city_hash % 4],
+            "main": ["Clear", "Clouds", "Clouds", "Rain"][city_hash % 4],
+            "wind_speed": 2.0 + (city_hash % 8) * 0.5,
+            "wind_direction": (city_hash * 37) % 360,
+            "visibility": 8.0 + (city_hash % 7),
             "timestamp": 0,
-            "note": "这是模拟数据，请配置WEATHER_API_KEY以获取真实天气"
+            "note": "这是模拟数据，请配置 WEATHER_API_KEY 以获取真实天气"
         }
     
     def format_weather_message(self, weather_data: Dict[str, Any]) -> str:

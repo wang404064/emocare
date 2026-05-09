@@ -2,7 +2,7 @@
 本地测试脚本 - 直接调用 EmoCare Agent
 """
 import asyncio
-from src.graph import emo_agent
+from src.graph.agent import _get_agent
 
 
 async def test_chat():
@@ -21,7 +21,7 @@ async def test_chat():
     for msg in test_messages:
         print(f"\n👤 用户: {msg}")
         
-        result = await emo_agent.chat(
+        result = await _get_agent().chat(
             user_input=msg,
             user_id="test_user",
             session_id="test_session"
@@ -54,7 +54,7 @@ async def interactive_chat():
             if not user_input:
                 continue
             
-            result = await emo_agent.chat(
+            result = await _get_agent().chat(
                 user_input=user_input,
                 user_id="local_user",
                 session_id=session_id

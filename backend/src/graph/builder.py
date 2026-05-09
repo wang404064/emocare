@@ -4,11 +4,14 @@ LangGraph 流程图构建器
 """
 from loguru import logger
 
+from pathlib import Path
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 
 from ..core.state import AgentState
+from ..core.config import BACKEND_DIR
 from ..agents.perception import run_perception
 from ..agents.conversation import run_conversation
 from ..agents.tools import run_tool_agent
@@ -125,11 +128,23 @@ def create_emo_graph():
     # 最终节点连接到END
     workflow.add_edge("finalize", END)
     
-    # 编译图
-    # 使用内存检查点来支持对话历史
-    memory = MemorySaver()
-    graph = workflow.compile(checkpointer=memory)
-    
+    # 编译图，使用 SQLite 持久化检查点（服务重启不丢失对话历史）
+    db_dir = BACKEND_DIR / "data"
+    db_dir.mkdir(parents=True, exist_ok=True)
+    db_path = str(db_dir / "checkpoints.db")
+
+    try:
+        import sqlite3
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        checkpointer = SqliteSaver(conn)
+        checkpointer.setup()
+        logger.info(f"使用 SQLite 检查点: {db_path}")
+    except Exception as e:
+        logger.warning(f"SQLite 检查点初始化失败，回退到内存模式: {e}")
+        checkpointer = MemorySaver()
+
+    graph = workflow.compile(checkpointer=checkpointer)
+
     logger.info("EmoCare Graph 已创建")
-    
+
     return graph

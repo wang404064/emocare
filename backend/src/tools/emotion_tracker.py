@@ -11,10 +11,13 @@ from loguru import logger
 
 class EmotionTrackerTool:
     """情绪追踪记录工具"""
-    
-    def __init__(self, storage_path: str = "./data/emotions"):
+
+    def __init__(self, storage_path: str = None):
         self.name = "emotion_tracker"
         self.description = "记录用户情绪用于长期追踪"
+        if storage_path is None:
+            from ..core.config import BACKEND_DIR
+            storage_path = str(BACKEND_DIR / "data" / "emotions")
         self.storage_path = Path(storage_path)
         self.storage_path.mkdir(parents=True, exist_ok=True)
     
@@ -135,15 +138,17 @@ class EmotionTrackerTool:
         
         avg_intensity = total_intensity / len(recent)
         
-        # 简单趋势判断
+        # 简单趋势判断（与 9 类情绪一致：hope/calm/joy 为正向）
+        positive_emotions = {"hope", "calm", "joy"}
         if len(recent) >= 3:
             recent_avg = sum(r['intensity'] for r in recent[-3:]) / 3
             earlier_avg = sum(r['intensity'] for r in recent[:3]) / 3
-            
+            last_emotion = recent[-1].get("emotion", "")
+
             if recent_avg > earlier_avg + 0.1:
-                trend = "improving" if recent[-1]['emotion'] in ['joy', 'trust'] else "worsening"
+                trend = "improving" if last_emotion in positive_emotions else "worsening"
             elif recent_avg < earlier_avg - 0.1:
-                trend = "worsening" if recent[-1]['emotion'] in ['joy', 'trust'] else "improving"
+                trend = "worsening" if last_emotion in positive_emotions else "improving"
             else:
                 trend = "stable"
         else:

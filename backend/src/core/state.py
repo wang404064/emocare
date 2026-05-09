@@ -59,6 +59,15 @@ class AgentState(TypedDict):
     # 是否需要工具Agent处理
     needs_tools: bool
     
+    # 是否已有工具结果（供对话Agent生成最终回复使用）
+    has_tool_results: bool
+    
+    # 格式化后的工具结果文本（供对话Agent使用）
+    tool_results_formatted: str
+    
+    # 当前对话策略标签（可解释性/可控性）
+    current_strategy: str
+    
     # 会话元数据
     session_metadata: dict
 
@@ -75,5 +84,8 @@ def create_initial_state(user_input: str, user_id: str = "anonymous") -> AgentSt
         tool_requests=[],
         tool_results=[],
         needs_tools=False,
+        has_tool_results=False,
+        tool_results_formatted="",
+        current_strategy="normal_chat",
         session_metadata={}
     )

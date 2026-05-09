@@ -44,20 +44,41 @@ class Settings(BaseSettings):
         "joy"           # 喜悦
     ]
     
-    # 危机关键词（硬匹配）
+    # 危机关键词（强信号 - 直接进入危机流程）
     CRISIS_KEYWORDS: list = [
-        "自杀", "想死", "不想活", "结束生命", "活着没意思",
-        "自我伤害", "割腕", "跳楼", "吃药自杀", "了结",
+        "自杀", "想死", "不想活了", "结束生命", "活着没意思",
+        "自我伤害", "割腕", "跳楼", "吃药自杀",
         "遗书", "不想醒来", "永远离开", "世界没有我会更好",
-        "没有人在乎我", "活不下去", "解脱"
+        "活不下去"
     ]
     
-    # 危机热线
+    # 弱危机信号关键词（需温和关注，不直接进危机流程）
+    WEAK_CRISIS_KEYWORDS: list = [
+        "没意思", "累了", "不想动", "什么都不想做",
+        "好累", "撑不住了", "很绝望", "没人在乎我",
+        "没有人理解我", "没人理解", "活得好累"
+    ]
+    
+    # 口语化误报过滤（正则模式，匹配整个字符串）
+    # 注意：这些是正则表达式，不是简单子串
+    CRISIS_FALSE_POSITIVE_PATTERNS: list = [
+        # "想死X了" 句式 — 口语思念/期待，非真实危机
+        r"想死.{1,4}了",
+        # "X死我了" 句式 — 口语夸张表达
+        r".{1,3}死我了",
+        # "笑死/吓死/气死/累死/烦死/饿死/困死/吵死" 等口语夸张
+        r"(笑|吓|气|累|烦|饿|困|吵|冻|热|疼|撑|咸|辣|酸|苦|闲|忙|穷|丑|胖)死",
+        # "死了" 在常见口语搭配中
+        r"(开心|高兴|舒服|爽|激动|感动|幸福|便宜|简单|容易|快|慢)死了",
+    ]
+    
+    # 危机热线（真实可用号码）
     CRISIS_HOTLINES: dict = {
-        "全国心理援助热线": "xxxxxxxxxx",
-        "北京心理危机研究与干预中心": "010-xxxxxxxxxx",
-        "生命热线": "xxxxxxxxxx",
-        "希望24热线": "xxxxxxxxxx"
+        "全国心理援助热线": "400-161-9995",
+        "北京心理危机研究与干预中心": "010-82951332",
+        "生命热线": "400-821-1215",
+        "希望24热线": "400-161-9995",
+        "紧急求助": "120 / 110"
     }
     
     # 场景分类
@@ -79,7 +100,7 @@ class Settings(BaseSettings):
     # 情绪识别器配置
     EMOTION_MODEL_PATH: Optional[str] = os.getenv(
         "EMOTION_MODEL_PATH",
-        r"E:\project\myProject\NewEmoCare\spec-kit-chinese-main\emotional-support-agent\models\emotion_classifier\emotion_risk_model_v1"
+        str(BACKEND_DIR / "models" / "emotion_risk_model_v1")
     )
     EMOTION_MODEL_DEVICE: Optional[str] = os.getenv("EMOTION_MODEL_DEVICE", None)  # None表示自动选择
     

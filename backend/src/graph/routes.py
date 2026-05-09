@@ -1,6 +1,11 @@
 """
 LangGraph 路由逻辑
 定义条件边的路由决策
+
+危机分级路由说明：
+  - crisis_immediate  → crisis_handler  (强危机信号，立即干预)
+  - empathy_first_gentle_probe → conversation (弱危机信号，温和探询，由对话Agent的策略控制)
+  - 其他策略          → conversation  (正常对话)
 """
 from typing import Literal
 from loguru import logger
@@ -11,16 +16,28 @@ from ..core.state import AgentState
 def route_after_perception(state: AgentState) -> Literal["crisis_handler", "conversation"]:
     """
     感知后的路由决策
-    根据是否检测到危机信号决定走哪条分支
+    基于 current_strategy 做三级路由：
+      - crisis_immediate → crisis_handler
+      - 其他（含 empathy_first_gentle_probe）→ conversation
+    同时兼容旧的 is_crisis bool 标志作为兜底。
     """
+    current_strategy = state.get("current_strategy", "normal_chat")
     is_crisis = state.get("is_crisis", False)
-    
-    if is_crisis:
-        logger.warning("路由决策: 进入危机处理分支")
+
+    if current_strategy == "crisis_immediate" or is_crisis:
+        logger.warning(
+            f"路由决策: 进入危机处理分支 (strategy={current_strategy}, is_crisis={is_crisis})"
+        )
         return "crisis_handler"
+    
+    if current_strategy == "empathy_first_gentle_probe":
+        logger.warning(
+            "路由决策: 检测到弱危机信号，进入对话分支（温和探询策略）"
+        )
     else:
-        logger.info("路由决策: 进入正常对话分支")
-        return "conversation"
+        logger.info(f"路由决策: 进入正常对话分支 (strategy={current_strategy})")
+    
+    return "conversation"
 
 
 def route_after_conversation(state: AgentState) -> Literal["tool_agent", "end"]:

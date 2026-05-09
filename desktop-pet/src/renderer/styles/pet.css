@@ -1,0 +1,217 @@
+/* ═══════════════════════════════════════════
+   pet.css - 宠物窗口样式
+   透明背景、浮动效果、情绪动画
+   ═══════════════════════════════════════════ */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+}
+
+.pet-container {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  background: transparent;
+}
+
+/* ── 宠物精灵 ─────────────────────────────── */
+
+.pet-sprite {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 120px;
+  height: 120px;
+  cursor: pointer;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+              filter 0.4s ease;
+  position: relative;
+}
+
+.pet-emoji {
+  font-size: 80px;
+  line-height: 1;
+  display: block;
+  text-align: center;
+  animation: float 3s ease-in-out infinite;
+}
+
+/* 浮动动画 */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-8px); }
+}
+
+/* 悬停放大 */
+.pet-sprite.hovered {
+  transform: scale(1.1) !important;
+}
+
+/* ── 情绪专属动画 ──────────────────────────── */
+
+.sprite-idle .pet-emoji {
+  animation: float 3s ease-in-out infinite;
+}
+
+.sprite-happy .pet-emoji {
+  animation: bounce 0.6s ease-in-out infinite alternate;
+}
+
+@keyframes bounce {
+  from { transform: translateY(0px) rotate(-3deg); }
+  to   { transform: translateY(-12px) rotate(3deg); }
+}
+
+.sprite-sad .pet-emoji {
+  animation: shake-gentle 2s ease-in-out infinite;
+}
+
+@keyframes shake-gentle {
+  0%, 100% { transform: translateX(0) rotate(0deg); }
+  25%       { transform: translateX(-3px) rotate(-2deg); }
+  75%       { transform: translateX(3px) rotate(2deg); }
+}
+
+.sprite-angry .pet-emoji {
+  animation: shake-fast 0.3s ease-in-out infinite;
+}
+
+@keyframes shake-fast {
+  0%, 100% { transform: translateX(0); }
+  25%       { transform: translateX(-5px); }
+  75%       { transform: translateX(5px); }
+}
+
+.sprite-scared .pet-emoji {
+  animation: tremble 0.15s ease-in-out infinite;
+}
+
+@keyframes tremble {
+  0%, 100% { transform: translateX(0) translateY(0); }
+  25%       { transform: translateX(-3px) translateY(-2px); }
+  75%       { transform: translateX(3px) translateY(2px); }
+}
+
+.sprite-thinking .pet-emoji {
+  animation: tilt 1.5s ease-in-out infinite;
+}
+
+@keyframes tilt {
+  0%, 100% { transform: rotate(0deg); }
+  50%       { transform: rotate(8deg); }
+}
+
+.sprite-waving .pet-emoji {
+  animation: wave 0.8s ease-in-out 3;
+}
+
+@keyframes wave {
+  0%, 100% { transform: rotate(0deg) translateY(0); }
+  25%       { transform: rotate(-15deg) translateY(-5px); }
+  75%       { transform: rotate(15deg) translateY(-5px); }
+}
+
+.sprite-sleeping .pet-emoji {
+  animation: slow-float 4s ease-in-out infinite;
+  opacity: 0.85;
+}
+
+@keyframes slow-float {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50%       { transform: translateY(-6px) rotate(-3deg); }
+}
+
+.sprite-crisis .pet-emoji {
+  animation: pulse-glow 1s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%       { transform: scale(1.05); opacity: 0.85; }
+}
+
+/* ── 粒子效果 ─────────────────────────────── */
+
+.particles {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.particle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  animation: particle-rise 2s ease-out infinite;
+}
+
+.particle-0 { background: #818cf8; top: 50%; left: 30%; animation-delay: 0s; }
+.particle-1 { background: #c084fc; top: 40%; left: 70%; animation-delay: 0.3s; }
+.particle-2 { background: #60a5fa; top: 60%; left: 50%; animation-delay: 0.6s; }
+.particle-3 { background: #34d399; top: 35%; left: 45%; animation-delay: 0.9s; }
+.particle-4 { background: #f472b6; top: 55%; left: 60%; animation-delay: 1.2s; }
+.particle-5 { background: #fbbf24; top: 45%; left: 35%; animation-delay: 1.5s; }
+
+@keyframes particle-rise {
+  0%   { transform: translateY(0) scale(1); opacity: 1; }
+  100% { transform: translateY(-60px) scale(0); opacity: 0; }
+}
+
+/* ── 悬停菜单 ─────────────────────────────── */
+
+.pet-menu {
+  position: absolute;
+  bottom: 5px;
+  right: 5px;
+  -webkit-app-region: no-drag;
+}
+
+.pet-menu-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.pet-menu-btn:hover {
+  transform: scale(1.15);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+/* ── 关怀徽标 ─────────────────────────────── */
+
+.care-badge {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  font-size: 18px;
+  animation: badge-pulse 1.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes badge-pulse {
+  0%, 100% { transform: scale(1); }
+  50%       { transform: scale(1.2); }
+}

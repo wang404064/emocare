@@ -1,0 +1,58 @@
+# ============================================================
+# LlamaFactory 配置 - SFT LoRA 训练
+# 基座模型: Qwen3-8B-Instruct
+# 数据集: Emocare SFT (3800条)
+#
+# 注意：路径使用 ${变量} 占位，由 train.sh 的 envsubst 注入
+#       不要在服务器上手动改这个文件
+# ============================================================
+
+### model
+model_name_or_path: ${MODEL_PATH}
+stage: sft
+do_train: true
+finetuning_type: lora
+lora_target: all                   # 全量 LoRA，全部 Linear 层
+
+### LoRA 超参（P0：必须显式写，不能依赖框架默认值）
+lora_rank: 64                      # r=64，提升情感对话表达容量
+lora_alpha: 128                    # alpha=128，alpha/r=2 是 LLM 微调经验比例
+lora_dropout: 0.05                 # 轻微 dropout，防过拟合
+
+### dataset
+dataset_dir: ${SCRIPT_DIR}
+dataset: emocare_sft
+template: qwen3_nothink
+cutoff_len: 4096                   # 长对话 + system prompt 需要更大窗口
+overwrite_cache: true
+preprocessing_num_workers: 8
+
+### output
+output_dir: ${DATA_ROOT}/output/sft
+logging_dir: ${DATA_ROOT}/output/logs/sft
+overwrite_output_dir: true
+save_total_limit: 3
+
+### train
+per_device_train_batch_size: 4
+gradient_accumulation_steps: 4     # 有效 batch_size = 4 * 4 = 16
+bf16: true
+num_train_epochs: 3
+lr_scheduler_type: cosine
+learning_rate: 1.0e-4
+warmup_ratio: 0.1
+max_grad_norm: 1.0
+weight_decay: 0.0                  # Qwen3 推荐 0
+optim: adamw_torch
+
+### log & save
+logging_steps: 10
+save_steps: 500
+save_only_model: true
+
+### other
+report_to: tensorboard             # 保存 loss 曲线
+gradient_checkpointing: true
+gradient_checkpointing_kwargs:
+  use_reentrant: false
+dataloader_num_workers: 4

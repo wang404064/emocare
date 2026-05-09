@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "langgraph>=0.4.10",
+    "langgraph-checkpoint-sqlite>=2.0",
     "langchain>=0.3.0",
     "langchain-openai>=0.2.0",
     "langchain-community>=0.3.0",
@@ -21,6 +22,9 @@ dependencies = [
     "loguru>=0.7.2",
     "apscheduler>=3.10.4",
     "httpx>=0.25.2",
+    "torch>=2.0.0",
+    "transformers>=4.30.0",
+    "sentence-transformers>=2.2.0",
     # 修复 opentelemetry 依赖冲突：确保所有 opentelemetry 包使用相同版本
     "opentelemetry-exporter-otlp-proto-grpc>=1.39.1",
     "opentelemetry-exporter-otlp-proto-common>=1.39.1",

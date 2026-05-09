@@ -5,31 +5,43 @@ import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from loguru import logger
 
-from ..graph.agent import emo_agent
+from ..graph.agent import _get_agent
 
 
 router = APIRouter()
 
 
 class ConnectionManager:
-    """WebSocket连接管理器"""
-    
+    """WebSocket连接管理器（含心跳检测和连接数限制）"""
+
+    MAX_CONNECTIONS = 100
+    HEARTBEAT_SECONDS = 30
+
     def __init__(self):
-        self.active_connections: dict = {}
-    
-    async def connect(self, websocket: WebSocket, session_id: str):
+        self.active_connections: dict[str, WebSocket] = {}
+
+    async def connect(self, websocket: WebSocket, session_id: str) -> bool:
+        if len(self.active_connections) >= self.MAX_CONNECTIONS:
+            await websocket.accept()
+            await websocket.send_json({"type": "error", "message": "连接数已达上限"})
+            await websocket.close()
+            return False
         await websocket.accept()
         self.active_connections[session_id] = websocket
-        logger.info(f"WebSocket连接: {session_id}")
-    
+        logger.info(f"WebSocket 连接: {session_id} (当前 {len(self.active_connections)} 个)")
+        return True
+
     def disconnect(self, session_id: str):
         if session_id in self.active_connections:
             del self.active_connections[session_id]
-            logger.info(f"WebSocket断开: {session_id}")
-    
+            logger.info(f"WebSocket 断开: {session_id}")
+
     async def send_message(self, session_id: str, message: dict):
         if session_id in self.active_connections:
-            await self.active_connections[session_id].send_json(message)
+            try:
+                await self.active_connections[session_id].send_json(message)
+            except Exception:
+                self.disconnect(session_id)
 
 
 ws_manager = ConnectionManager()
@@ -38,30 +50,53 @@ ws_manager = ConnectionManager()
 @router.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
     """
-    WebSocket实时对话接口
+    WebSocket 实时对话接口（含心跳）
     """
-    await ws_manager.connect(websocket, session_id)
-    
+    import asyncio as aio
+
+    accepted = await ws_manager.connect(websocket, session_id)
+    if not accepted:
+        return
+
+    # 心跳任务
+    async def heartbeat():
+        while True:
+            await aio.sleep(ConnectionManager.HEARTBEAT_SECONDS)
+            try:
+                await websocket.send_json({"type": "ping"})
+            except Exception:
+                break
+
+    heartbeat_task = aio.create_task(heartbeat())
+
     try:
         while True:
-            # 接收消息
             data = await websocket.receive_text()
-            message_data = json.loads(data)
-            
+            try:
+                message_data = json.loads(data)
+            except json.JSONDecodeError:
+                await ws_manager.send_message(session_id, {
+                    "type": "error",
+                    "message": "消息格式错误，请发送有效的 JSON"
+                })
+                continue
+
+            # 客户端心跳响应
+            if message_data.get("type") == "pong":
+                continue
+
             user_input = message_data.get("message", "")
             user_id = message_data.get("user_id", "anonymous")
-            
+
             if not user_input:
                 continue
-            
-            # 调用Agent
-            result = await emo_agent.chat(
+
+            result = await _get_agent().chat(
                 user_input=user_input,
                 user_id=user_id,
                 session_id=session_id
             )
-            
-            # 发送响应
+
             await ws_manager.send_message(session_id, {
                 "type": "response",
                 "response": result.get("response", ""),
@@ -69,9 +104,11 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 "scene": result.get("scene", ""),
                 "is_crisis": result.get("is_crisis", False)
             })
-            
+
     except WebSocketDisconnect:
         ws_manager.disconnect(session_id)
     except Exception as e:
-        logger.error(f"WebSocket错误: {e}")
+        logger.error(f"WebSocket 错误: {e}")
         ws_manager.disconnect(session_id)
+    finally:
+        heartbeat_task.cancel()

@@ -15,7 +15,24 @@ from apscheduler.triggers.date import DateTrigger
 
 class ProactiveMessageScheduler:
     """主动消息调度器"""
-    
+
+    # 待投递的消息（user_id → [messages]，用于 HTTP 轮询）
+    _pending_delivery: dict[str, list[dict]] = {}
+
+    @classmethod
+    def get_pending_for_user(cls, user_id: str) -> list[dict]:
+        """获取并清空指定用户的待投递消息"""
+        msgs = cls._pending_delivery.pop(user_id, [])
+        return msgs
+
+    @classmethod
+    def enqueue_for_user(cls, user_id: str, message: str):
+        """将消息放入待投递队列"""
+        cls._pending_delivery.setdefault(user_id, []).append({
+            "message": message,
+            "timestamp": datetime.now().isoformat()
+        })
+
     # 主动关怀消息模板
     PROACTIVE_TEMPLATES = {
         "check_in": [
@@ -58,15 +75,33 @@ class ProactiveMessageScheduler:
             self.scheduler.shutdown()
             self.scheduler = None
             logger.info("消息调度器已停止")
-    
+
+    def schedule_check_in(self, user_id: str, delay_minutes: int = 30, message_type: str = "check_in"):
+        """为指定用户调度一次主动关怀（应用层自动触发，非 LLM 工具触发）"""
+        import random
+        if message_type in self.PROACTIVE_TEMPLATES:
+            message = random.choice(self.PROACTIVE_TEMPLATES[message_type])
+        else:
+            message = "Hi，想看看你今天怎么样"
+        send_at = datetime.now() + timedelta(minutes=delay_minutes)
+        if not self.scheduler:
+            self.init_scheduler()
+        return self.schedule_message(user_id, message, send_at, message_type)
+
     async def _send_message(self, job_id: str, user_id: str, message: str):
-        """发送消息的回调"""
+        """发送消息的回调（WebSocket 推送 + HTTP 轮询双路兜底）"""
         logger.info(f"发送主动消息: user={user_id}, message={message[:30]}...")
-        
+
+        # 入队待投递（供 HTTP 轮询）
+        self.enqueue_for_user(user_id, message)
+
+        # WebSocket 实时推送（如果客户端在线）
         if self._message_callback:
-            await self._message_callback(user_id, message)
-        
-        # 清理已发送的消息
+            try:
+                await self._message_callback(user_id, message)
+            except Exception as e:
+                logger.warning(f"WebSocket 推送失败（消息已入轮询队列）: {e}")
+
         if job_id in self.pending_messages:
             del self.pending_messages[job_id]
     
@@ -186,11 +221,11 @@ class ProactiveMessageScheduler:
 
 class ReminderTool:
     """提醒工具"""
-    
-    def __init__(self, scheduler: ProactiveMessageScheduler = None):
+
+    def __init__(self, scheduler: ProactiveMessageScheduler):
         self.name = "reminder"
         self.description = "设置提醒"
-        self.scheduler = scheduler or ProactiveMessageScheduler()
+        self.scheduler = scheduler
     
     def parse_time_expression(self, expression: str) -> Optional[datetime]:
         """解析时间表达式（简单实现）"""

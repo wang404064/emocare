@@ -5,7 +5,7 @@ EmoCare API 路由
 from fastapi import APIRouter, HTTPException
 from loguru import logger
 
-from ..graph.agent import emo_agent
+from ..graph.agent import _get_agent
 from .schemas import (
     ChatRequest, 
     ChatResponse, 
@@ -35,19 +35,30 @@ async def chat(request: ChatRequest):
     try:
         # 确定session_id
         session_id = request.session_id or request.user_id
-        
+
         logger.info(f"收到消息: user={request.user_id}, session={session_id}")
-        
+
         # 调用Agent
-        result = await emo_agent.chat(
+        agent = _get_agent()
+        result = await agent.chat(
             user_input=request.message,
             user_id=request.user_id,
             session_id=session_id
         )
-        
+
+        # 首次会话自动安排回访关怀（30分钟后发送问候）
+        history = agent.get_session_history(session_id)
+        if len(history) <= 2:  # 仅有本轮 1 user + 1 assistant
+            from ..tools import proactive_scheduler
+            proactive_scheduler.schedule_check_in(
+                user_id=request.user_id,
+                delay_minutes=30,
+                message_type="check_in"
+            )
+
         # 构建响应
         emotion_data = result.get("emotion", {})
-        
+
         return ChatResponse(
             response=result.get("response", ""),
             emotion=EmotionInfo(
@@ -71,7 +82,7 @@ async def get_session_history(session_id: str):
     获取会话历史
     """
     try:
-        history = emo_agent.get_session_history(session_id)
+        history = _get_agent().get_session_history(session_id)
         
         return SessionHistoryResponse(
             session_id=session_id,
@@ -92,7 +103,7 @@ async def clear_session(session_id: str):
     清除会话历史
     """
     try:
-        emo_agent.clear_session(session_id)
+        _get_agent().clear_session(session_id)
         return {"message": f"会话 {session_id} 已清除"}
         
     except Exception as e:
@@ -110,6 +121,17 @@ async def health_check():
         service="EmoCare Agent",
         version="1.0.0"
     )
+
+
+@router.get("/session/{session_id}/proactive")
+async def get_proactive_messages(session_id: str):
+    """
+    获取并清空待投递的主动关怀消息（供前端轮询）
+    每 30 秒调用一次即可
+    """
+    from ..tools.scheduler import ProactiveMessageScheduler
+    messages = ProactiveMessageScheduler.get_pending_for_user(session_id)
+    return {"messages": messages}
 
 
 # 包含WebSocket路由

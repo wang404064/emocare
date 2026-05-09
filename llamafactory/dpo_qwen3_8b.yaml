@@ -1,0 +1,66 @@
+# ============================================================
+# LlamaFactory 配置 - DPO LoRA 训练
+# 基座模型: Qwen3-8B-Instruct
+# SFT adapter: sft 阶段输出的 LoRA 权重
+# 数据集: Emocare DPO (4792条)
+#
+# 注意：路径使用 ${变量} 占位，由 train.sh 的 envsubst 注入
+#       不要在服务器上手动改这个文件
+# ============================================================
+
+### model
+model_name_or_path: ${MODEL_PATH}
+stage: dpo
+do_train: true
+finetuning_type: lora
+lora_target: all
+
+### LoRA 超参（与 SFT 阶段保持一致，确保 adapter 结构相同）
+lora_rank: 64
+lora_alpha: 128
+lora_dropout: 0.05
+
+# ★ 加载 SFT 阶段的 LoRA adapter，DPO 在其基础上继续训练
+adapter_name_or_path: ${SFT_ADAPTER}
+
+### method
+pref_loss: sigmoid
+pref_beta: 0.1
+
+### dataset
+dataset_dir: ${SCRIPT_DIR}
+dataset: emocare_dpo
+template: qwen3_nothink
+cutoff_len: 4096
+overwrite_cache: true
+preprocessing_num_workers: 8
+
+### output
+output_dir: ${DATA_ROOT}/output/dpo
+logging_dir: ${DATA_ROOT}/output/logs/dpo
+overwrite_output_dir: true
+save_total_limit: 3
+
+### train
+per_device_train_batch_size: 2     # DPO 需要保存 ref_model，batch_size 要小
+gradient_accumulation_steps: 8     # 有效 batch_size = 2 * 8 = 16
+bf16: true
+num_train_epochs: 2
+lr_scheduler_type: cosine
+learning_rate: 5.0e-5              # DPO 学习率比 SFT 小
+warmup_ratio: 0.03
+max_grad_norm: 1.0
+weight_decay: 0.0
+optim: adamw_torch
+
+### log & save
+logging_steps: 10
+save_steps: 500
+save_only_model: true
+
+### other
+report_to: tensorboard
+gradient_checkpointing: true
+gradient_checkpointing_kwargs:
+  use_reentrant: false
+dataloader_num_workers: 4

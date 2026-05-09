@@ -90,12 +90,19 @@ class ConversationAgent:
 【当前感知信息】
 - 用户情绪: {emotion}（强度: {intensity}）
 - 场景提示: {scene}
+- 当前对话策略: {strategy}
 
 【对话策略指导】
-根据情绪强度调整策略：
-- 高强度负面情绪（>0.7）：先共情，多倾听，暂缓建议
-- 中等情绪（0.3-0.7）：共情后可以轻柔地探索
-- 低强度或积极情绪：可以更自然地交流
+根据 current_strategy 严格执行：
+- empathy_first: 高强度负面情绪，先充分共情，暂缓建议，多追问感受
+- empathy_first_gentle_probe: 用户可能有一些深层痛苦。核心是让对方感到被真正倾听了——
+    * 先共情、先理解，不要急于给建议或解决问题
+    * 柔性地多问一句"最近发生什么了吗？"或"这种感觉是从什么时候开始的？"
+    * 如果对话自然推进，可以在结尾轻柔地带一句："有时候找个专业的人聊聊，也是一种对自己的善待"
+    * 不要机械地在每条回复都贴热线——只在对方明确表达无助或请求帮助时才提供
+- gentle_explore: 中等情绪，共情后可以轻柔地探索、询问
+- normal_chat: 低强度或积极情绪，自然地交流
+- crisis_immediate: 危机状态（此分支由危机Agent处理，不应进入此处）
 
 根据场景调整：
 - work_stress: 理解职场压力，可探讨边界感
@@ -111,20 +118,22 @@ class ConversationAgent:
 4. 如果用户想聊别的，就自然地跟着聊
 5. 回复长度适中，不要太长让人有压力
 6. 严禁重复：不要在回复中重复相同的句子或段落，确保每个表达都是唯一的
+7. 永远不要做医疗、法律诊断或建议，超出能力范围时建议用户寻求专业帮助
 
 记住：你是陪伴者，不是解决问题的人。有时候，被听见本身就是最好的支持。"""
     
-    def _build_enhanced_prompt(self, perception: dict) -> str:
+    def _build_enhanced_prompt(self, perception: dict, current_strategy: str = "normal_chat") -> str:
         """根据感知结果增强系统提示"""
         emotion_info = perception.get("emotion", {})
         emotion = emotion_info.get("emotion", "calm")
         intensity = emotion_info.get("intensity", 0.5)
         scene = perception.get("scene_hint", "other")
-        
+
         return self._get_system_prompt().format(
             emotion=emotion,
             intensity=intensity,
-            scene=scene
+            scene=scene,
+            strategy=current_strategy
         )
     
     def _prepare_history(self, messages: list, max_length: int = None) -> list:
@@ -178,15 +187,16 @@ class ConversationAgent:
         return ''.join(result_sentences)
     
     async def generate_response(
-        self, 
-        user_input: str, 
-        perception: dict, 
-        history: list
+        self,
+        user_input: str,
+        perception: dict,
+        history: list,
+        current_strategy: str = "normal_chat"
     ) -> str:
         """生成对话响应"""
         try:
             # 构建增强的系统提示
-            enhanced_system = self._build_enhanced_prompt(perception)
+            enhanced_system = self._build_enhanced_prompt(perception, current_strategy)
             
             # 准备历史消息
             prepared_history = self._prepare_history(history)
@@ -252,18 +262,28 @@ class ConversationAgent:
         messages = state.get("messages", [])
         has_tool_results = state.get("has_tool_results", False)
         tool_results_formatted = state.get("tool_results_formatted", "")
+        current_strategy = state.get("current_strategy", "normal_chat")
         
-        logger.info(f"对话Agent处理: {user_input[:50]}...")
+        logger.info(f"对话Agent处理: {user_input[:50]}... 策略: {current_strategy}")
         
-        # 如果已经有工具结果，根据工具结果生成最终回答
+        # 如果已经有工具结果（且格式化文本非空），根据工具结果生成最终回答
         if has_tool_results and tool_results_formatted:
             logger.info("根据工具结果生成最终回答")
-            # 将工具结果作为上下文，让LLM生成包含工具结果的完整回答
             enhanced_input = f"{user_input}\n\n[工具执行结果]\n{tool_results_formatted}"
             response = await self.generate_response(
                 user_input=enhanced_input,
                 perception=perception,
-                history=messages
+                history=messages,
+                current_strategy=current_strategy
+            )
+        elif has_tool_results and not tool_results_formatted:
+            # 工具已执行但无格式化结果（如仅做了情绪记录），直接生成正常回复
+            logger.info("工具有结果但无可展示文本，生成正常回复")
+            response = await self.generate_response(
+                user_input=user_input,
+                perception=perception,
+                history=messages,
+                current_strategy=current_strategy
             )
         else:
             # 1. 先检查是否需要工具（基于用户输入，不依赖响应）
@@ -285,7 +305,8 @@ class ConversationAgent:
                 response = await self.generate_response(
                     user_input=user_input,
                     perception=perception,
-                    history=messages
+                    history=messages,
+                    current_strategy=current_strategy
                 )
             
             logger.info(f"生成响应: {response[:100]}...")

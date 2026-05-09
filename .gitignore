@@ -40,7 +40,11 @@ logs/
 .DS_Store
 Thumbs.db
 
-# 模型文件（如果很大，建议使用 Git LFS 或忽略）
-# *.pth
-# *.pt
-# *.ckpt
+# 模型文件（BERT 391MB，超 GitHub 限制，需单独下载）
+backend/models/
+
+# Claude Code 内部文件
+.claude/
+
+# 非核心项目文件
+PROGRESS.md

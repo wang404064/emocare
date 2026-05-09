@@ -1,0 +1,26 @@
+{
+  "emocare_sft": {
+    "file_name": "emocare_sft_combined.jsonl",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "emocare_dpo": {
+    "file_name": "emocare_dpo.jsonl",
+    "formatting": "alpaca",
+    "ranking": true,
+    "columns": {
+      "prompt": "prompt",
+      "chosen": "chosen",
+      "rejected": "rejected"
+    }
+  }
+}

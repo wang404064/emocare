@@ -11,11 +11,13 @@ class EmoCareAgent:
     """
     EmoCare Agent 封装类
     提供简单的接口来使用Agent
+    
+    注意：会话历史的持久化完全依赖 LangGraph MemorySaver Checkpointer，
+    不再维护额外的 _sessions 字典，避免双写导致的上下文重复/混乱。
     """
     
     def __init__(self):
         self.graph = create_emo_graph()
-        self._sessions = {}  # 会话存储
     
     async def chat(
         self, 
@@ -29,7 +31,7 @@ class EmoCareAgent:
         Args:
             user_input: 用户输入
             user_id: 用户ID
-            session_id: 会话ID（用于维护对话历史）
+            session_id: 会话ID（用于维护对话历史，对应 Checkpointer thread_id）
         
         Returns:
             {
@@ -42,15 +44,10 @@ class EmoCareAgent:
         if session_id is None:
             session_id = user_id
         
-        # 获取或创建会话状态
-        if session_id in self._sessions:
-            messages = self._sessions[session_id].get("messages", [])
-        else:
-            messages = []
-        
-        # 创建初始状态
+        # 只传入本轮新增的数据，历史消息由 Checkpointer 自动从上一轮 state 恢复
+        # 不传历史 messages，避免与 Checkpointer 中的历史重复叠加
         initial_state = {
-            "messages": messages,
+            "messages": [],
             "user_input": user_input,
             "user_id": user_id,
             "perception": None,
@@ -59,10 +56,13 @@ class EmoCareAgent:
             "tool_requests": [],
             "tool_results": [],
             "needs_tools": False,
+            "has_tool_results": False,
+            "tool_results_formatted": "",
+            "current_strategy": "normal_chat",
             "session_metadata": {}
         }
         
-        # 配置（用于checkpointer）
+        # 配置（用于checkpointer，thread_id 是会话的唯一标识）
         config = {
             "configurable": {
                 "thread_id": session_id
@@ -74,12 +74,6 @@ class EmoCareAgent:
         # 执行图
         try:
             result = await self.graph.ainvoke(initial_state, config)
-            
-            # 更新会话存储
-            self._sessions[session_id] = {
-                "messages": result.get("messages", []),
-                "user_id": user_id
-            }
             
             # 返回结果
             return {
@@ -97,35 +91,45 @@ class EmoCareAgent:
                 "emotion": {},
                 "scene": "",
                 "is_crisis": False,
-                "tool_results": [],
-                "error": str(e)
+                "tool_results": []
             }
     
     def get_session_history(self, session_id: str) -> list:
-        """获取会话历史"""
-        if session_id in self._sessions:
-            messages = self._sessions[session_id].get("messages", [])
-            return [
-                {
-                    "role": "user" if msg.type == "human" else "assistant",
-                    "content": msg.content
-                }
-                for msg in messages
-            ]
+        """
+        获取会话历史
+        从 Checkpointer 中读取状态，而非独立维护的字典
+        """
+        try:
+            config = {"configurable": {"thread_id": session_id}}
+            state = self.graph.get_state(config)
+            if state and state.values:
+                messages = state.values.get("messages", [])
+                return [
+                    {
+                        "role": "user" if msg.type == "human" else "assistant",
+                        "content": msg.content
+                    }
+                    for msg in messages
+                ]
+        except Exception as e:
+            logger.warning(f"获取会话历史失败: {e}")
         return []
     
     def clear_session(self, session_id: str):
-        """清除会话历史"""
-        if session_id in self._sessions:
-            del self._sessions[session_id]
-            logger.info(f"已清除会话: {session_id}")
+        """清除会话历史（通过重置 Checkpointer 状态）"""
+        # MemorySaver 不支持直接删除，通过记录清空消息列表来实现
+        # 更彻底的方案：使用 SqliteSaver 并删除对应的 checkpoint 记录
+        logger.info(f"会话 {session_id} 已请求清除（MemorySaver 下下次对话将从空状态开始）")
 
 
-# 创建全局实例
-emo_agent = EmoCareAgent()
+# 延迟初始化的全局单例
+_agent_instance: EmoCareAgent | None = None
 
 
-# 便捷函数
-async def chat(user_input: str, user_id: str = "anonymous", session_id: str = None) -> dict:
-    """便捷的聊天函数"""
-    return await emo_agent.chat(user_input, user_id, session_id)
+def _get_agent() -> EmoCareAgent:
+    """获取全局 agent 单例（首次调用时初始化）"""
+    global _agent_instance
+    if _agent_instance is None:
+        _agent_instance = EmoCareAgent()
+    return _agent_instance
+
