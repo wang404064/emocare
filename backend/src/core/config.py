@@ -25,23 +25,21 @@ class Settings(BaseSettings):
     """应用配置"""
     
     # LLM配置 - Qwen3-8B API
-    LLM_API_BASE: str = os.getenv("LLM_API_BASE", "http://localhost:8000/v1")
+    LLM_API_BASE: str = os.getenv("LLM_API_BASE", "https://api.deepseek.com/v1")
     LLM_API_KEY: str = os.getenv("LLM_API_KEY", "EMPTY")
-    LLM_MODEL_NAME: str = os.getenv("LLM_MODEL_NAME", "qwen3-8b")
+    LLM_MODEL_NAME: str = os.getenv("LLM_MODEL_NAME", "deepseek-chat")
     LLM_TEMPERATURE: float = 0.7
     LLM_MAX_TOKENS: int = 2048
     
-    # 情绪分类配置 - 9种情绪（与情绪识别器一致，不进行映射）
+    # 情绪分类配置 - 7种情绪（v2.1 合并 shame_guilt→loneliness, hope→joy）
     EMOTION_CATEGORIES: list = [
         "sadness",      # 悲伤
         "anxiety",      # 焦虑
         "anger",        # 愤怒
-        "loneliness",   # 孤独
-        "shame_guilt",  # 羞耻/内疚
+        "loneliness",   # 孤独/羞耻/内疚
         "hopelessness", # 绝望
-        "hope",         # 希望
         "calm",         # 平静
-        "joy"           # 喜悦
+        "joy"           # 喜悦/希望
     ]
     
     # 危机关键词（强信号 - 直接进入危机流程）
@@ -100,10 +98,19 @@ class Settings(BaseSettings):
     # 情绪识别器配置
     EMOTION_MODEL_PATH: Optional[str] = os.getenv(
         "EMOTION_MODEL_PATH",
-        str(BACKEND_DIR / "models" / "emotion_risk_model_v1")
+        str(BACKEND_DIR / "models" / "emotion_risk_model_v2")
     )
     EMOTION_MODEL_DEVICE: Optional[str] = os.getenv("EMOTION_MODEL_DEVICE", None)  # None表示自动选择
-    
+
+    # 语音情绪识别配置
+    AUDIO_MODEL_NAME: str = os.getenv(
+        "AUDIO_MODEL_NAME", "iic/SenseVoiceSmall"
+    )
+    AUDIO_VAD_MODEL: str = os.getenv("AUDIO_VAD_MODEL", "fsmn-vad")
+    AUDIO_SAMPLE_RATE: int = 16000
+    AUDIO_EMOTION_WEIGHT: float = 0.3  # 音频情绪在融合中的默认权重
+    AUDIO_MAX_DURATION_SEC: int = 30   # 最长录音时长
+
     class Config:
         env_file = str(ENV_FILE) if ENV_FILE.exists() else ".env"
         env_file_encoding = "utf-8"
@@ -111,6 +118,10 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# 注入 ModelScope 缓存路径（避免下载到 C 盘）
+if os.getenv("MODELSCOPE_CACHE"):
+    os.environ.setdefault("MODELSCOPE_CACHE", os.getenv("MODELSCOPE_CACHE"))
 
 # 启动时打印配置信息（用于调试）
 def print_config():

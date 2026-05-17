@@ -24,6 +24,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /** 发送消息到后端 */
   sendMessage: (sessionId: string, message: string) =>
     ipcRenderer.invoke('chat:sendMessage', { sessionId, message }),
+  /** 发送语音消息 (base64 编码的音频) */
+  sendVoiceMessage: (sessionId: string, audioBase64: string) =>
+    ipcRenderer.invoke('chat:sendVoiceMessage', { sessionId, audioBase64 }),
   /** 开始新会话 */
   newSession: () => ipcRenderer.invoke('chat:newSession'),
   /** 清除会话历史 */

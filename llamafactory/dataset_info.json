@@ -22,5 +22,16 @@
       "chosen": "chosen",
       "rejected": "rejected"
     }
+  },
+  "emocare_dpo_v4": {
+    "file_name": "emocare_dpo_v4.jsonl",
+    "formatting": "alpaca",
+    "ranking": true,
+    "columns": {
+      "prompt": "prompt",
+      "chosen": "chosen",
+      "rejected": "rejected",
+      "metadata": "meta"
+    }
   }
 }

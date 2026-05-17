@@ -94,6 +94,63 @@ class EmoCareAgent:
                 "tool_results": []
             }
     
+    async def chat_audio(
+        self,
+        audio_data: bytes,
+        user_id: str = "anonymous",
+        session_id: str = None,
+    ) -> dict:
+        """
+        处理语音消息 — 音频 → ASR → 多模态情绪 → 对话。
+
+        Args:
+            audio_data: 原始音频 bytes (WAV/FLAC 等)
+            user_id: 用户ID
+            session_id: 会话ID
+        """
+        if session_id is None:
+            session_id = user_id
+
+        initial_state = {
+            "messages": [],
+            "user_input": "",          # 转录文本在 perception 中生成
+            "audio_data": audio_data,  # 触发音頻路径
+            "user_id": user_id,
+            "perception": None,
+            "is_crisis": False,
+            "response": "",
+            "tool_requests": [],
+            "tool_results": [],
+            "needs_tools": False,
+            "has_tool_results": False,
+            "tool_results_formatted": "",
+            "current_strategy": "normal_chat",
+            "session_metadata": {},
+        }
+
+        config = {"configurable": {"thread_id": session_id}}
+        logger.info(f"处理语音: user={user_id}, session={session_id}, "
+                    f"size={len(audio_data)} bytes")
+
+        try:
+            result = await self.graph.ainvoke(initial_state, config)
+            return {
+                "response": result.get("response", ""),
+                "emotion": result.get("perception", {}).get("emotion", {}),
+                "scene": result.get("perception", {}).get("scene_hint", ""),
+                "is_crisis": result.get("is_crisis", False),
+                "tool_results": result.get("tool_results", []),
+            }
+        except Exception as e:
+            logger.error(f"语音图执行失败: {e}")
+            return {
+                "response": "抱歉，语音识别遇到了一些问题。你可以打字告诉我吗？",
+                "emotion": {},
+                "scene": "",
+                "is_crisis": False,
+                "tool_results": [],
+            }
+
     def get_session_history(self, session_id: str) -> list:
         """
         获取会话历史
@@ -123,7 +180,7 @@ class EmoCareAgent:
 
 
 # 延迟初始化的全局单例
-_agent_instance: EmoCareAgent | None = None
+_agent_instance = None  # type: ignore
 
 
 def _get_agent() -> EmoCareAgent:

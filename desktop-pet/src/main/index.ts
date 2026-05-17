@@ -171,6 +171,18 @@ function createTray(): Tray {
 
 // ─── 应用生命周期 ──────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
+  // 允许麦克风权限（Electron 默认拒绝 getUserMedia）
+  const { session } = require('electron')
+  session.defaultSession.setPermissionRequestHandler(
+    (_webContents: any, permission: string, callback: (granted: boolean) => void) => {
+      if (permission === 'media') {
+        callback(true)
+      } else {
+        callback(false)
+      }
+    }
+  )
+
   createPetWindow()
   createChatWindow()
   createTray()

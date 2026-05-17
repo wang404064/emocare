@@ -22,13 +22,11 @@ export function emotionToSprite(
   if (strategy === 'crisis_immediate') return 'crisis'
   switch (emotion) {
     case 'joy':          return 'happy'
-    case 'hope':         return 'happy'
     case 'calm':         return 'idle'
     case 'sadness':      return 'sad'
     case 'anxiety':      return 'scared'
     case 'anger':        return 'angry'
     case 'loneliness':   return 'sad'
-    case 'shame_guilt':  return 'sad'
     case 'hopelessness': return 'crisis'
     default:             return 'idle'
   }
@@ -43,6 +41,7 @@ interface ChatStore {
   // Actions
   initSession: () => Promise<void>
   sendMessage: (text: string) => Promise<void>
+  sendVoiceMessage: (audioBlob: Blob) => Promise<void>
   clearMessages: () => void
   updateEmotion: (state: Omit<EmotionState, 'updatedAt'>) => void
   addProactiveMessage: (text: string) => void
@@ -151,6 +150,70 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           isLoading: false,
           error: err.message ?? '网络错误'
         }
+      }))
+    }
+  },
+
+  // ── 发送语音消息 ───────────────────────────────────────────────────────────
+  sendVoiceMessage: async (audioBlob: Blob) => {
+    const { session } = get()
+    if (!session.sessionId || session.isLoading) return
+
+    // 将 Blob 转 base64
+    const buffer = await audioBlob.arrayBuffer()
+    const bytes = new Uint8Array(buffer)
+    let binary = ''
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i])
+    }
+    const audioBase64 = btoa(binary)
+
+    set((state) => ({
+      session: {
+        ...state.session,
+        isLoading: true,
+        error: undefined,
+      }
+    }))
+
+    try {
+      const result = await window.electronAPI.sendVoiceMessage(
+        session.sessionId,
+        audioBase64
+      )
+
+      if (result.success && result.data) {
+        const assistantMessage: Message = {
+          id: `ai_${Date.now()}`,
+          role: 'assistant',
+          content: result.data.response,
+          timestamp: Date.now(),
+          emotion: result.data.perception?.emotion?.emotion as EmotionType,
+        }
+
+        set((state) => ({
+          session: {
+            ...state.session,
+            messages: [...state.session.messages, assistantMessage],
+            isLoading: false,
+          },
+        }))
+      } else {
+        set((state) => ({
+          session: {
+            ...state.session,
+            isLoading: false,
+            error: result.error ?? '语音处理失败',
+          },
+        }))
+      }
+    } catch (err: any) {
+      set((state) => ({
+        session: {
+          ...state.session,
+          isLoading: false,
+          error: err.message ?? '网络错误',
+        },
       }))
     }
   },

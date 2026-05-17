@@ -71,31 +71,56 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
     try:
         while True:
-            data = await websocket.receive_text()
-            try:
-                message_data = json.loads(data)
-            except json.JSONDecodeError:
-                await ws_manager.send_message(session_id, {
-                    "type": "error",
-                    "message": "消息格式错误，请发送有效的 JSON"
-                })
+            # 支持 text JSON 和 binary 两种消息
+            message = await websocket.receive()
+
+            if "text" in message:
+                try:
+                    message_data = json.loads(message["text"])
+                except json.JSONDecodeError:
+                    await ws_manager.send_message(session_id, {
+                        "type": "error",
+                        "message": "消息格式错误，请发送有效的 JSON"
+                    })
+                    continue
+
+                # 客户端心跳响应
+                if message_data.get("type") == "pong":
+                    continue
+
+                # 文本路径
+                user_input = message_data.get("message", "")
+                user_id = message_data.get("user_id", "anonymous")
+
+                if not user_input:
+                    continue
+
+                result = await _get_agent().chat(
+                    user_input=user_input,
+                    user_id=user_id,
+                    session_id=session_id
+                )
+
+            elif "bytes" in message:
+                # 音频路径
+                audio_bytes = message["bytes"]
+                user_id = "anonymous"  # WebSocket 无 metadata，取默认值
+
+                if not audio_bytes or len(audio_bytes) < 800:
+                    await ws_manager.send_message(session_id, {
+                        "type": "error",
+                        "message": "音频数据过短"
+                    })
+                    continue
+
+                result = await _get_agent().chat_audio(
+                    audio_data=audio_bytes,
+                    user_id=user_id,
+                    session_id=session_id,
+                )
+
+            else:
                 continue
-
-            # 客户端心跳响应
-            if message_data.get("type") == "pong":
-                continue
-
-            user_input = message_data.get("message", "")
-            user_id = message_data.get("user_id", "anonymous")
-
-            if not user_input:
-                continue
-
-            result = await _get_agent().chat(
-                user_input=user_input,
-                user_id=user_id,
-                session_id=session_id
-            )
 
             await ws_manager.send_message(session_id, {
                 "type": "response",

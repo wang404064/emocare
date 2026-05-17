@@ -104,6 +104,27 @@ export function setupIpcHandlers(
     }
   })
 
+  ipcMain.handle('chat:sendVoiceMessage', async (
+    _event,
+    { sessionId, audioBase64 }: { sessionId: string; audioBase64: string }
+  ) => {
+    try {
+      const result = await apiClient.sendAudio(sessionId, audioBase64)
+
+      if (result.perception) {
+        petWindow.webContents.send('pet:emotionUpdate', {
+          emotion: result.perception.emotion?.emotion ?? 'neutral',
+          intensity: result.perception.emotion?.intensity ?? 0.5,
+          strategy: result.current_strategy ?? 'normal_chat'
+        })
+      }
+
+      return { success: true, data: result }
+    } catch (error: any) {
+      return { success: false, error: error.message }
+    }
+  })
+
   ipcMain.handle('chat:newSession', () => {
     return { sessionId: `session_${Date.now()}` }
   })

@@ -142,7 +142,7 @@ set NODE_ENV=development&& npx electron .   # 启动桌面宠物
 | 危机二次判断 | **Crisis Judge**：强关键词命中后，独立 LLM 快速判断真实风险（high/low/uncertain），避免口语夸张误触危机流程 |
 | 策略选择 | 5 级策略 + Judge 联动：`crisis_immediate` → `empathy_first_gentle_probe` → `empathy_first` → `gentle_explore` → `normal_chat` |
 
-**9 种情绪：** sadness · anxiety · anger · loneliness · shame_guilt · hopelessness · hope · calm · joy
+**7 种情绪：** sadness · anxiety · anger · loneliness · hopelessness · calm · joy
 
 #### 2. 对话 Agent（Conversation）
 

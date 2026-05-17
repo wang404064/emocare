@@ -29,7 +29,9 @@ pref_beta: 0.1
 
 ### dataset
 dataset_dir: ${SCRIPT_DIR}
-dataset: emocare_dpo
+dataset: emocare_dpo_v4
+# 如需使用旧版数据：emocare_dpo
+# v4 数据: 场景分级 (L1/L2/L3) + 长度对齐 + 软负样本 (Type F) + 共情句式保护
 template: qwen3_nothink
 cutoff_len: 4096
 overwrite_cache: true

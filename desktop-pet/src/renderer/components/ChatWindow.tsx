@@ -5,11 +5,12 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { useChatStore } from '../store/chatStore'
+import VoiceInput from './VoiceInput'
 import type { Message } from '@shared/types'
 import '../styles/chat.css'
 
 const ChatWindow: React.FC = () => {
-  const { session, sendMessage, clearMessages } = useChatStore()
+  const { session, sendMessage, sendVoiceMessage, clearMessages } = useChatStore()
   const [inputText, setInputText] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -30,6 +31,11 @@ const ChatWindow: React.FC = () => {
     setInputText('')
     await sendMessage(text)
   }, [inputText, session.isLoading, sendMessage])
+
+  const handleVoice = useCallback(async (audioBlob: Blob) => {
+    if (session.isLoading) return
+    await sendVoiceMessage(audioBlob)
+  }, [session.isLoading, sendVoiceMessage])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -101,6 +107,7 @@ const ChatWindow: React.FC = () => {
 
       {/* 输入区域 */}
       <div className="input-area">
+        <VoiceInput disabled={session.isLoading} onAudioReady={handleVoice} />
         <input
           ref={inputRef}
           className="message-input"

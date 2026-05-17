@@ -150,13 +150,11 @@ const PetEmoji: React.FC<{ sprite: string }> = ({ sprite }) => (
 function getEmotionAccentColor(emotion: string): string {
   const colors: Record<string, string> = {
     joy:           '#f59e0b',
-    hope:          '#fbbf24',
     calm:          '#22d3ee',
     sadness:       '#6366f1',
     anxiety:       '#a78bfa',
     anger:         '#ef4444',
     loneliness:    '#8b5cf6',
-    shame_guilt:   '#f97316',
     hopelessness:  '#991b1b'
   }
   return colors[emotion] ?? '#94a3b8'

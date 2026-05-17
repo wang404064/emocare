@@ -46,5 +46,11 @@ backend/models/
 # Claude Code 内部文件
 .claude/
 
+# 外部数据集（体积大，需单独下载）
+backend/dataset/external/
+
+# DPO 生成中间产物（最终版本再提交）
+backend/dataset/dpo/
+
 # 非核心项目文件
 PROGRESS.md

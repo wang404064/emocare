@@ -35,8 +35,14 @@ class AgentState(TypedDict):
     # 消息历史 - 使用add_messages reducer自动合并
     messages: Annotated[list, add_messages]
     
-    # 当前用户输入
+    # 当前用户输入（文本或语音转录后文本）
     user_input: str
+
+    # 语音情绪数据（原始音频 bytes，仅语音输入时存在）
+    audio_data: Optional[bytes]
+
+    # 音频情绪融合结果（仅语音输入时存在）
+    audio_emotion: Optional[dict]
     
     # 用户ID（用于情绪追踪）
     user_id: str
@@ -87,5 +93,7 @@ def create_initial_state(user_input: str, user_id: str = "anonymous") -> AgentSt
         has_tool_results=False,
         tool_results_formatted="",
         current_strategy="normal_chat",
-        session_metadata={}
+        session_metadata={},
+        audio_data=None,
+        audio_emotion=None,
     )

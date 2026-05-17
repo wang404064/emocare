@@ -2,17 +2,15 @@
  * 前后端共享类型定义
  */
 
-/** 9种情绪类型（与后端BERT模型输出一致） */
+/** 7种情绪类型（v2.1 合并 shame_guilt→loneliness, hope→joy，与后端BERT模型输出一致） */
 export type EmotionType =
   | 'sadness'       // 悲伤
   | 'anxiety'       // 焦虑
   | 'anger'         // 愤怒
-  | 'loneliness'    // 孤独
-  | 'shame_guilt'   // 羞耻/内疚
+  | 'loneliness'    // 孤独/羞耻/内疚
   | 'hopelessness'  // 绝望
-  | 'hope'          // 希望
   | 'calm'          // 平静
-  | 'joy'           // 喜悦
+  | 'joy'           // 喜悦/希望
 
 export type ConversationStrategy =
   | 'normal_chat'

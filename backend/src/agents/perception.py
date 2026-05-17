@@ -1,10 +1,11 @@
 """
 感知Agent (Perception Agent)
 职责：
-1. 情绪识别 (9分类 + 强度) - 使用BERT模型
-2. 危机检测 (分层：强信号/弱信号/正常，含误报过滤)
-3. 场景识别 (简单分类)
-4. 策略决定 (根据情绪+危机等级选择对话策略)
+1. 情绪识别 (7分类 + 强度) - 使用BERT模型
+2. 语音情绪识别 - 使用SenseVoice + 多模态融合
+3. 危机检测 (分层：强信号/弱信号/正常，含误报过滤)
+4. 场景识别 (简单分类)
+5. 策略决定 (根据情绪+危机等级选择对话策略)
 """
 import re
 from typing import List, Tuple
@@ -17,6 +18,7 @@ from langchain_core.output_parsers import JsonOutputParser
 from ..core.config import settings
 from ..core.state import AgentState, PerceptionResult, EmotionAnalysis
 from ..models.emotion_recognizer import get_emotion_recognizer
+from ..models.audio_emotion import get_audio_recognizer, EMOTION_ORDER as AUDIO_EMOTION_ORDER
 
 
 class PerceptionAgent:
@@ -140,18 +142,25 @@ class PerceptionAgent:
                 logger.warning(f"情绪识别器加载失败，将使用LLM备用方案: {e}")
         return self.emotion_recognizer
     
-    async def recognize_emotion(self, user_input: str) -> dict:
-        """
-        使用BERT模型进行情绪识别（在线程池中执行，避免阻塞事件循环）
+    def _format_history(self, messages: list, max_turns: int = 3) -> str:
+        """取最近 N 轮对话，格式化为文本供 BERT 拼接（ERC 上下文感知）"""
+        if not messages:
+            return ""
+        recent = messages[-(max_turns * 2):]  # 每轮 = 用户 + 助手
+        lines = []
+        for msg in recent:
+            role = "用户" if msg.type == "human" else "助手"
+            content = getattr(msg, "content", str(msg))
+            lines.append(f"{role}: {content[:200]}")
+        return "\n".join(lines)
 
-        Returns:
-            {
-                "emotion": str,
-                "intensity": float,
-                "confidence": float,
-                "risk_level": str,
-                "risk_score": float
-            }
+    async def recognize_emotion(self, user_input: str, history_text: str = "") -> dict:
+        """
+        上下文感知情绪识别（在线程池中执行）。
+
+        Args:
+            user_input: 当前用户消息
+            history_text: 最近 N 轮对话的格式化文本（已拼接好的）
         """
         import asyncio
 
@@ -161,9 +170,14 @@ class PerceptionAgent:
 
         try:
             loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(None, recognizer.recognize, user_input)
-            logger.info(f"情绪识别结果: {result['emotion']} (强度: {result['intensity']:.2f}, "
-                       f"风险: {result['risk_level']})")
+            result = await loop.run_in_executor(
+                None, recognizer.recognize, user_input, history_text
+            )
+            logger.info(
+                f"情绪识别: {result['emotion']} (强度: {result['intensity']:.2f}), "
+                f"风险: {result['risk_level']} (分数: {result['risk_score']:.2f}), "
+                f"转变: {result.get('shift_label', 'N/A')}"
+            )
             return result
         except Exception as e:
             logger.error(f"情绪识别失败: {e}")
@@ -171,13 +185,180 @@ class PerceptionAgent:
 
     def _default_emotion_result(self) -> dict:
         return {
-            "emotion": "calm",
-            "intensity": 0.5,
-            "confidence": 0.3,
-            "risk_level": "low",
-            "risk_score": 0.0
+            "emotion": "calm", "intensity": 0.5, "confidence": 0.3,
+            "risk_level": "low", "risk_score": 0.0, "shift_label": "stable",
         }
-    
+
+    def _emotion_based_strategy(self, intensity: float) -> str:
+        """按情绪强度返回策略（不含危机逻辑）"""
+        if intensity > 0.7:
+            return "empathy_first"
+        elif intensity > 0.3:
+            return "gentle_explore"
+        return "normal_chat"
+
+    async def recognize_emotion_from_audio(self, audio_data: bytes) -> dict:
+        """
+        语音情绪识别 + 多模态融合。
+
+        流程:
+          1. SenseVoice ASR → 转录文本 + 音频情绪向量
+          2. BERT → 文本情绪向量
+          3. 多模态加权融合
+        """
+        import asyncio
+
+        audio_recognizer = get_audio_recognizer()
+        loop = asyncio.get_event_loop()
+
+        # 1. 音频情绪识别（在线程池中执行）
+        audio_result = await loop.run_in_executor(
+            None, audio_recognizer.recognize, audio_data
+        )
+        transcript = audio_result.get("text", "").strip()
+        audio_vector = audio_result["audio_emotion_vector"]
+        audio_events = audio_result.get("audio_events", [])
+        audio_emotion = audio_result.get("audio_emotion", "calm")
+
+        logger.info(
+            f"音频识别: text='{transcript[:60]}...' "
+            f"audio_emotion={audio_emotion}, "
+            f"events={audio_events}"
+        )
+
+        if not transcript:
+            return {
+                "emotion_result": self._default_emotion_result(),
+                "audio_emotion_details": {},
+                "transcript": "",
+            }
+
+        # 2. 文本情绪识别（BERT）
+        text_emotion_result = await self.recognize_emotion(transcript, history_text="")
+        text_vector = self._emotion_dict_to_vector(text_emotion_result)
+
+        # 3. 多模态融合
+        fused_vector = self._multimodal_fusion(
+            text_vector=text_vector,
+            audio_vector=audio_vector,
+            audio_events=audio_events,
+            audio_emotion=audio_emotion,
+        )
+
+        # 4. 用融合后的向量替换 BERT 结果
+        merged_result = self._vector_to_emotion_result(
+            fused_vector,
+            text_emotion_result.get("risk_level", "low"),
+            text_emotion_result.get("risk_score", 0.0),
+            text_emotion_result.get("shift_label", "stable"),
+        )
+        return {
+            "emotion_result": merged_result,
+            "audio_emotion_details": dict(zip(
+                ["sadness", "anxiety", "anger", "loneliness",
+                 "hopelessness", "calm", "joy"],
+                audio_vector,
+            )),
+            "transcript": transcript,
+        }
+
+    def _emotion_dict_to_vector(self, result: dict) -> list:
+        """从 BERT 结果中提取 7 维情绪向量"""
+        details = result.get("emotion_details", {})
+        order = [
+            "sadness", "anxiety", "anger", "loneliness",
+            "hopelessness", "calm", "joy"
+        ]
+        return [details.get(k, 0.0) for k in order]
+
+    def _vector_to_emotion_result(
+        self, vector: list, risk_level: str, risk_score: float, shift_label: str
+    ) -> dict:
+        """将 7 维向量转回与 BERT 一致的 emotion_result 格式"""
+        order = [
+            "sadness", "anxiety", "anger", "loneliness",
+            "hopelessness", "calm", "joy"
+        ]
+        emotion_dict = dict(zip(order, vector))
+        primary_idx = max(range(len(order)), key=lambda i: vector[i])
+        primary_emotion = order[primary_idx]
+        primary_intensity = vector[primary_idx]
+
+        return {
+            "emotion": primary_emotion,
+            "intensity": primary_intensity,
+            "confidence": min(primary_intensity * 1.2, 1.0),
+            "emotion_details": emotion_dict,
+            "risk_level": risk_level,
+            "risk_score": risk_score,
+            "all_emotions": emotion_dict,
+            "shift_label": shift_label,
+        }
+
+    def _multimodal_fusion(
+        self,
+        text_vector: list,
+        audio_vector: list,
+        audio_events: list,
+        audio_emotion: str,
+    ) -> list:
+        """
+        多模态情绪融合: 音频情绪 + 文本情绪 → 加权合并。
+
+        规则:
+          - 默认权重: text 0.7, audio 0.3
+          - 音频事件（哭/笑/叹息）直接注入增量
+          - 音频有高置信标签且与文本不一致时，提升音频权重到 0.4
+        """
+        text_w = 0.7
+        audio_w = settings.AUDIO_EMOTION_WEIGHT  # default 0.3
+
+        order = [
+            "sadness", "anxiety", "anger", "loneliness",
+            "hopelessness", "calm", "joy"
+        ]
+
+        # ── 1. 加权合并 ──────────────────────────────────────
+        fused = [
+            text_w * text_vector[i] + audio_w * audio_vector[i]
+            for i in range(7)
+        ]
+
+        # ── 2. 音频事件增强（强力信号，直接叠加） ──────────────
+        EVENT_BOOST = {
+            "CRY":      {"sadness": 0.3, "hopelessness": 0.2},
+            "LAUGHTER": {"joy": 0.3},
+            "LAUGH":    {"joy": 0.25},
+            "SOB":      {"sadness": 0.25},
+            "SIGH":     {"sadness": 0.15},
+            "SCREAM":   {"anxiety": 0.3, "anger": 0.2},
+        }
+        for event in audio_events:
+            boosts = EVENT_BOOST.get(event, {})
+            for emo_key, boost_val in boosts.items():
+                idx = order.index(emo_key)
+                fused[idx] = min(fused[idx] + boost_val, 1.0)
+
+        # ── 3. 抑制无音频时的 calm 偏向 ───────────────────────
+        if not audio_events and audio_emotion == "calm":
+            # 音频确认平静 → 微调权重，但不过度压过文本
+            pass
+
+        # ── 4. 归一化 ─────────────────────────────────────────
+        total = sum(fused)
+        if total > 0:
+            fused = [round(v / total, 4) for v in fused]
+        else:
+            fused = [round(v, 4) for v in fused]
+
+        logger.info(
+            f"多模态融合: text[{text_vector[0]:.2f},{text_vector[3]:.2f}...] "
+            f"+ audio[{audio_vector[0]:.2f},{audio_vector[3]:.2f}...] "
+            f"→ fused[{fused[0]:.2f},{fused[3]:.2f}...] "
+            f"(events={audio_events})"
+        )
+        return fused
+
     async def analyze_scene(self, user_input: str, context: str = "", emotion_info: dict = None) -> dict:
         """
         使用LLM进行场景分析
@@ -228,82 +409,122 @@ class PerceptionAgent:
 
     async def __call__(self, state: AgentState) -> AgentState:
         """
-        感知Agent主入口。
+        感知Agent主入口 (v2 — ERC + 多层融合危机检测)。
 
-        决策流程（自上而下）：
-        1. 口语误报           → normal_chat（直接放行）
-        2. 强关键词命中       → Crisis Judge 二次判断
-              ├─ high         → crisis_immediate（硬编码安全模板）
-              ├─ uncertain    → empathy_first_gentle_probe（LLM 生成 + safety 约束）
-              └─ low          → 按情绪强度走正常策略
-        3. BERT 高风险(无关键词) → empathy_first_gentle_probe（LLM 生成 + safety 约束）
-        4. 弱信号             → empathy_first_gentle_probe（温和关注）
-        5. 正常               → 按情绪强度选择策略
+        决策流程：
+        1. 正则误报           → normal_chat
+        2. 强关键词命中       → BERT risk gating
+              ├─ BERT low    → 直接放行（不调 LLM）  ← NEW
+              ├─ BERT high   → crisis_immediate（不调 LLM） ← NEW
+              └─ BERT medium → LLM Crisis Judge 二次判断    ← 保留
+        3. BERT 高风险(无关键词) → empathy_first_gentle_probe
+        4. 弱信号             → empathy_first_gentle_probe
+        5. 正常               → 按情绪强度选策略
         """
         user_input = state["user_input"]
         messages = state.get("messages", [])
+        audio_data = state.get("audio_data")
 
-        logger.info(f"感知Agent处理: {user_input[:50]}...")
+        if audio_data:
+            logger.info(f"感知Agent处理: 语音输入 ({len(audio_data)} bytes)")
+        else:
+            logger.info(f"感知Agent处理: {user_input[:50]}...")
 
-        # 1. 情绪识别
-        emotion_result = await self.recognize_emotion(user_input)
+        # ── 1. 上下文感知情绪识别（ERC / 多模态） ─────────────────────────
+        audio_emotion = None
+        if audio_data:
+            # 语音路径：SenseVoice ASR → 转录文本 + 音频情绪
+            # 2. BERT 文本情绪 → 3. 多模态融合
+            fused = await self.recognize_emotion_from_audio(audio_data)
+            emotion_result = fused["emotion_result"]
+            audio_emotion = fused.get("audio_emotion_details", {})
+            # 用转录文本作为 user_input（供危机检测 + 对话使用）
+            user_input = fused.get("transcript", "") or user_input
+        else:
+            history_text = self._format_history(messages)
+            emotion_result = await self.recognize_emotion(user_input, history_text)
 
-        # 2. 关键词危机检测
+        # ── 2. 关键词危机检测 ────────────────────────────────────────────
         is_strong_crisis, crisis_level, matched_keywords = self.detect_crisis(user_input)
-        risk_level = emotion_result.get("risk_level", "low")
-        risk_score = emotion_result.get("risk_score", 0.0)
+        bert_risk = emotion_result.get("risk_level", "low")
+        bert_risk_score = emotion_result.get("risk_score", 0.0)
         emotion_intensity = emotion_result.get("intensity", 0.5)
+        shift_label = emotion_result.get("shift_label", "stable")
 
-        # ── 3. 策略决策 ──────────────────────────────────────────────────
-        judge_result = None  # Crisis Judge 的判决结果
+        # ── 3. 策略决策（多层融合） ───────────────────────────────────────
+        judge_result = None
+        judge_skipped = False  # 标记是否跳过了 LLM Judge
 
         if is_strong_crisis and matched_keywords:
-            # 强关键词命中 → LLM 二次判断
-            judge_result = await self._crisis_judge(
-                user_input, matched_keywords, risk_level, risk_score
-            )
-            if judge_result["level"] == "high":
-                current_strategy = "crisis_immediate"
+            # ── BERT Risk Gating（优化5）─────────────────────────────────
+            if bert_risk == "low" and bert_risk_score < 0.3:
+                # BERT 高置信认定不是危机 → 跳过 LLM Judge
+                logger.info(
+                    f"BERT risk gate: low ({bert_risk_score:.2f}) → 跳过 LLM Judge, "
+                    f"关键词={matched_keywords}"
+                )
+                is_crisis = False
+                is_weak_crisis = False
+                current_strategy = self._emotion_based_strategy(emotion_intensity)
+                judge_result = {"level": "low", "brief": "BERT low confidence"}
+                judge_skipped = True
+
+            elif bert_risk == "high" and bert_risk_score > 0.7:
+                # BERT 高置信认定是危机 → 跳过 LLM Judge, 直接进危机流程
+                logger.warning(
+                    f"BERT risk gate: high ({bert_risk_score:.2f}) → 直接危机流程, "
+                    f"关键词={matched_keywords}"
+                )
                 is_crisis = True
                 is_weak_crisis = False
-            elif judge_result["level"] == "uncertain":
-                current_strategy = "empathy_first_gentle_probe"
-                is_crisis = False
-                is_weak_crisis = True
-            else:  # low — LLM 认为不是危机
-                is_crisis = False
-                is_weak_crisis = False
-                if emotion_intensity > 0.7:
-                    current_strategy = "empathy_first"
-                elif emotion_intensity > 0.3:
-                    current_strategy = "gentle_explore"
-                else:
-                    current_strategy = "normal_chat"
+                current_strategy = "crisis_immediate"
+                judge_result = {"level": "high", "brief": "BERT high confidence"}
+                judge_skipped = True
 
-        elif risk_level == "high" and risk_score > 0.7:
-            # BERT 高风险但无关键词
+            else:
+                # BERT medium → 调 LLM Judge
+                judge_result = await self._crisis_judge(
+                    user_input, matched_keywords, bert_risk, bert_risk_score
+                )
+                if judge_result["level"] == "high":
+                    current_strategy = "crisis_immediate"
+                    is_crisis = True
+                    is_weak_crisis = False
+                elif judge_result["level"] == "uncertain":
+                    current_strategy = "empathy_first_gentle_probe"
+                    is_crisis = False
+                    is_weak_crisis = True
+                else:
+                    is_crisis = False
+                    is_weak_crisis = False
+                    current_strategy = self._emotion_based_strategy(emotion_intensity)
+
+        elif bert_risk == "high" and bert_risk_score > 0.7:
+            # BERT 高风险但无关键词 → 弱危机
             is_crisis = False
             is_weak_crisis = True
             current_strategy = "empathy_first_gentle_probe"
 
         elif crisis_level == "weak":
-            # 弱信号
+            # 弱信号 → 温和关注
             is_crisis = False
             is_weak_crisis = True
             current_strategy = "empathy_first_gentle_probe"
 
         else:
-            # 正常
             is_crisis = False
             is_weak_crisis = False
-            if emotion_intensity > 0.7:
-                current_strategy = "empathy_first"
-            elif emotion_intensity > 0.3:
-                current_strategy = "gentle_explore"
-            else:
-                current_strategy = "normal_chat"
+            current_strategy = self._emotion_based_strategy(emotion_intensity)
 
-        # ── 4. 构建上下文 ───────────────────────────────────────────────
+        # ── 4. 情绪恶化检测 ──────────────────────────────────────────────
+        if not is_crisis and shift_label == "up" and emotion_intensity > 0.6:
+            logger.info(f"情绪持续恶化 (shift=up, intensity={emotion_intensity:.2f})"
+                        f" → 升级为 empathy_first_gentle_probe")
+            is_weak_crisis = True
+            if current_strategy == "normal_chat":
+                current_strategy = "empathy_first_gentle_probe"
+
+        # ── 5. 构建场景分析上下文 ─────────────────────────────────────────
         context = ""
         if messages:
             recent_messages = messages[-6:]
@@ -312,10 +533,9 @@ class PerceptionAgent:
                 for msg in recent_messages
             ])
 
-        # ── 5. 场景分析 ─────────────────────────────────────────────────
         scene_result = await self.analyze_scene(user_input, context, emotion_result)
 
-        # ── 6. 构建感知结果 ─────────────────────────────────────────────
+        # ── 6. 构建感知结果 ──────────────────────────────────────────────
         perception_result = {
             "emotion": {
                 "emotion": emotion_result.get("emotion", "calm"),
@@ -326,24 +546,32 @@ class PerceptionAgent:
             "crisis_level": crisis_level,
             "is_weak_crisis": is_weak_crisis,
             "crisis_keywords_matched": matched_keywords,
-            "risk_level": risk_level,
-            "risk_score": risk_score,
+            "risk_level": bert_risk,
+            "risk_score": bert_risk_score,
             "scene_hint": scene_result.get("scene", "other"),
             "scene_confidence": scene_result.get("scene_confidence", 0.5),
-            "judge_result": judge_result  # 供 conversation agent 参考
+            "judge_result": judge_result,
+            "judge_skipped": judge_skipped,
+            "shift_label": shift_label,
         }
 
-        logger.info(f"感知结果: emotion={perception_result['emotion']['emotion']} "
-                   f"(强度: {perception_result['emotion']['intensity']:.2f}), "
-                   f"crisis={is_crisis} (judge={judge_result['level'] if judge_result else 'N/A'}), "
-                   f"keywords={matched_keywords}, risk={risk_level}, "
-                   f"scene={perception_result['scene_hint']}, strategy={current_strategy}")
+        logger.info(
+            f"感知结果: emotion={perception_result['emotion']['emotion']} "
+            f"(强度: {perception_result['emotion']['intensity']:.2f}, 转变: {shift_label}), "
+            f"crisis={is_crisis} (BERT risk={bert_risk}/{bert_risk_score:.2f}, "
+            f"judge={'skipped' if judge_skipped else (judge_result['level'] if judge_result else 'N/A')}), "
+            f"keywords={matched_keywords}, scene={perception_result['scene_hint']}, "
+            f"strategy={current_strategy}"
+        )
 
         return {
             **state,
+            "user_input": user_input,       # 语音路径时为转录文本
             "perception": perception_result,
             "is_crisis": is_crisis,
-            "current_strategy": current_strategy
+            "current_strategy": current_strategy,
+            "audio_emotion": audio_emotion,  # 语音情绪向量（仅语音路径）
+            "audio_data": None,              # 用完即清，避免重复处理
         }
 
 

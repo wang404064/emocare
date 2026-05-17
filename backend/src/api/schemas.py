@@ -14,7 +14,7 @@ class ChatRequest(BaseModel):
 
 class EmotionInfo(BaseModel):
     """情绪信息"""
-    emotion: str = Field(default="calm", description="情绪类别（9种情绪之一）")
+    emotion: str = Field(default="calm", description="情绪类别（7种情绪之一）")
     intensity: float = Field(default=0.5, description="情绪强度")
     confidence: float = Field(default=0.5, description="置信度")
 
