@@ -24,10 +24,11 @@ else:
 class Settings(BaseSettings):
     """应用配置"""
     
-    # LLM配置 - Qwen3-8B API
-    LLM_API_BASE: str = os.getenv("LLM_API_BASE", "https://api.deepseek.com/v1")
+    # LLM配置 — 兼容多家厂商 + 本地模型（代码零改动，改 .env 即可切换）
+    # 云端: DashScope(qwen3-max) | DeepSeek(deepseek-chat) | 本地: vLLM(emocare-8b) | Ollama(emocare:latest)
+    LLM_API_BASE: str = os.getenv("LLM_API_BASE", "https://dashscope.aliyuncs.com/compatible-mode/v1")
     LLM_API_KEY: str = os.getenv("LLM_API_KEY", "EMPTY")
-    LLM_MODEL_NAME: str = os.getenv("LLM_MODEL_NAME", "deepseek-chat")
+    LLM_MODEL_NAME: str = os.getenv("LLM_MODEL_NAME", "qwen3-max")
     LLM_TEMPERATURE: float = 0.7
     LLM_MAX_TOKENS: int = 2048
     
